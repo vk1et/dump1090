@@ -698,7 +698,7 @@ int detectModeA(uint16_t *m, struct modesMessage *mm)
     }
 
   //
-  // Output format is : 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
+  // Output format is : 00:A4:A2:A1:00:B4:B2:B1:SPI:C4:C2:C1:00:D4:D2:D1
   //
   if ((ModeABits < 3) || (ModeABits & 0xFFFF8808) || (ModeAErrs) )
     {return (ModeABits = 0);}
@@ -709,7 +709,7 @@ int detectModeA(uint16_t *m, struct modesMessage *mm)
   return ModeABits;
   }
 
-// Input format is : 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
+// Input format is : 00:A4:A2:A1:00:B4:B2:B1:SPI:C4:C2:C1:00:D4:D2:D1
 int ModeAToModeC(unsigned int ModeA) 
   { 
   unsigned int FiveHundreds = 0;
@@ -878,7 +878,7 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
 // Similar to fixSingleBitErrors() but try every possible two bit combination.
 // This is very slow and should be tried only against DF17 messages that
 // don't pass the checksum, and only in Aggressive Mode.
-/*
+//
 int fixTwoBitsErrors(unsigned char *msg, int bits) {
     int j, i;
     unsigned char aux[MODES_LONG_MSG_BYTES];
@@ -918,7 +918,7 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
     }
     return (-1);
 }
-*/
+
 /* Code for introducing a less CPU-intensive method of correcting
  * single bit errors.
  *
@@ -1178,7 +1178,7 @@ void testAndTimeBitCorrection() {
         inittmsg2();
         gettimeofday(&starttv, NULL);
         for (i = 0;  i < NTWOBITS;  i++) {
-            fixSingleBitErrors(&tmsg2[i][0], MODES_LONG_MSG_BITS);
+            fixTwoBitsErrors(&tmsg2[i][0], MODES_LONG_MSG_BITS);
         }
         gettimeofday(&endtv, NULL);
         printf("   Old code: 2-bit errors on %d msgs: %ld usecs\n",
@@ -1674,7 +1674,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 //
 void displayModesMessage(struct modesMessage *mm) {
     int j;
-    unsigned char * pTimeStamp;
 
     // Handle only addresses mode first.
     if (Modes.onlyaddr) {
@@ -1685,10 +1684,7 @@ void displayModesMessage(struct modesMessage *mm) {
     // Show the raw message.
     if (Modes.mlat && mm->timestampMsg) {
         printf("@");
-        pTimeStamp = (unsigned char *) &mm->timestampMsg;
-        for (j=5; j>=0;j--) {
-            printf("%02X",pTimeStamp[j]);
-        } 
+        printf("%012llx", (mm->timestampMsg & 0x0000ffffffffffffLL));
     } else
         printf("*");
 
@@ -2131,9 +2127,9 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             uint32_t b = *pPtr++;
 
             if      (a > b) 
-                {theByte |= 1; if (i < 56) {sigStrength += (a-b);}} 
+                {theByte |= 1; if (i < MODES_SHORT_MSG_BITS) {sigStrength += (a-b);}} 
             else if (a < b) 
-                {/*theByte |= 0;*/ if (i < 56) {sigStrength += (b-a);}} 
+                {/*theByte |= 0;*/ if (i < MODES_SHORT_MSG_BITS) {sigStrength += (b-a);}} 
             else if (i >= MODES_SHORT_MSG_BITS) //(a == b), and we're in the long part of a frame
                 {errors++;  /*theByte |= 0;*/} 
             else if (i >= 5)                    //(a == b), and we're in the short part of a frame
@@ -3031,6 +3027,7 @@ void modesInitNet(void) {
     Modes.maxfd = -1;
 
     for (j = 0; j < 6; j++) {
+        if (services[j].port == 0) continue;    // Don't setup if port = 0
         int s = anetTcpServer(Modes.aneterr, services[j].port, NULL);
         if (s == -1) {
             fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
@@ -3061,6 +3058,7 @@ void modesAcceptClients(void) {
     services[5] = Modes.sbsos;
 
     for (j = 0; j < sizeof(services)/sizeof(int); j++) {
+        if (services[j] == 0) continue;         // Skip if not defined.
         fd = anetTcpAccept(Modes.aneterr, services[j], NULL, &port);
         if (fd == -1) continue;
 
@@ -3139,7 +3137,7 @@ void modesSendAllClients(int service, void *msg, int len) {
 void modesSendBeastOutput(struct modesMessage *mm) {
     char *p = &Modes.beastOut[Modes.beastOutUsed];
     int  msgLen = mm->msgbits / 8;
-    char * pTimeStamp;
+    uint64_t timeStamp;
     int  j;
 
     *p++ = 0x1a;
@@ -3152,10 +3150,12 @@ void modesSendBeastOutput(struct modesMessage *mm) {
     else
       {return;}
 
-    pTimeStamp = (char *) &mm->timestampMsg;
+    timeStamp = mm->timestampMsg;  // More architecturally secure version
     for (j = 5; j >= 0; j--) {
-        *p++ = pTimeStamp[j];
+      *(p+j) = timeStamp & 0xff;
+      timeStamp = (timeStamp >> 8);
     }
+    p += 6;
 
     *p++ = mm->signalLevel;
 
@@ -3175,22 +3175,16 @@ void modesSendRawOutput(struct modesMessage *mm) {
     char *p = &Modes.rawOut[Modes.rawOutUsed];
     int  msgLen = mm->msgbits / 8;
     int j;
-    unsigned char * pTimeStamp;
 
     if (Modes.mlat && mm->timestampMsg) {
         *p++ = '@';
-        pTimeStamp = (unsigned char *) &mm->timestampMsg;
-        for (j = 5; j >= 0; j--) {
-            sprintf(p, "%02X", pTimeStamp[j]);
-            p += 2;
-        }
+        p += sprintf(p, "%012llX", (mm->timestampMsg & 0x0000ffffffffffffLL));
         Modes.rawOutUsed += 12; // additional 12 characters for timestamp
     } else
         *p++ = '*';
 
     for (j = 0; j < msgLen; j++) {
-        sprintf(p, "%02X", mm->msg[j]);
-        p += 2;
+        p += sprintf(p, "%02X", mm->msg[j]);
     }
 
     *p++ = ';';
@@ -3354,6 +3348,8 @@ void modesSendSBSOutput(struct modesMessage *mm) {
 //
 // This function decodes a Beast binary format message
 // 
+// We are passed the Beast message without the leading 0x1a.
+//
 // The message is passed to the higher level layers, so it feeds
 // the selected screen output, the network output and so forth.
 // 
@@ -3783,7 +3779,7 @@ void modesReadFromClients(void) {
         if (c->service == Modes.ris)
             modesReadFromClient(c,"\n",decodeHexMessage);
         else if (c->service == Modes.bis)
-            modesReadFromClient(c,"",decodeBinMessage);
+            modesReadFromClient(c,NULL,decodeBinMessage);
         else if (c->service == Modes.https)
             modesReadFromClient(c,"\r\n\r\n",handleHTTPRequest);
     }
@@ -3919,10 +3915,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--net-ro-rate") && more) {
             Modes.net_output_raw_rate = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ro-port") && more) {
-            if (Modes.beast) // Required for legacy backward compatibility
-                {Modes.net_output_beast_port = atoi(argv[++j]);;}
-            else
-                {Modes.net_output_raw_port = atoi(argv[++j]);}
+            Modes.net_output_raw_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ri-port") && more) {
             Modes.net_input_raw_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-bo-port") && more) {
@@ -3991,6 +3984,11 @@ int main(int argc, char **argv) {
             showHelp();
             exit(1);
         }
+    }
+
+    if (Modes.beast) { // Required for legacy --net-beast backward compatibility
+        Modes.net_output_beast_port = Modes.net_output_raw_port;
+        Modes.net_output_raw_port = 0;
     }
 
     // Initialization
