@@ -600,9 +600,9 @@ int detectModeA(uint16_t *m, struct modesMessage *mm)
   // If we get here then we have a potential F1, so look for an equally valid F2 20.3uS later
   //
   // Our F1 is centered somewhere between samples m[1] and m[2]. We can guestimate where F2 is 
-  // by comparing the ratio of m1 and m2, and adding on 20.3 uS (40.6 samples)
+  // by comparing the ratio of the signal portions of m1 and m2, and adding on 20.3 uS (40.6 samples)
   //
-  mPhase = ((m2 * 20) / (m1 + m2));
+  mPhase = (((m2-F1_noise) * 20) / (m1 + m2 - (F1_noise * 2)));
   byte   = (mPhase + 812) / 20; 
   n0     = m[byte++]; n1 = m[byte++]; 
 
@@ -1927,7 +1927,7 @@ int detectOutOfPhase(uint16_t *pPreamble) {
     if (pPreamble[ 3] > pPreamble[2]/3) return  1;
     if (pPreamble[10] > pPreamble[9]/3) return  1;
     if (pPreamble[ 6] > pPreamble[7]/3) return -1;
-    if (pPreamble[-1] > pPreamble[1]/3) return -1;
+    if (pPreamble[-1] > pPreamble[0]/3) return -1;
     return 0;
 }
 
@@ -1962,11 +1962,13 @@ int detectOutOfPhase(uint16_t *pPreamble) {
 void applyPhaseCorrection(uint16_t *pPayload) {
     int j;
 
-    for (j = 0; j < MODES_LONG_MSG_SAMPLES; j += 2, pPayload += 2) {
-        if (pPayload[0] > pPayload[1]) { /* One */
-            pPayload[2] = (pPayload[2] * 5) / 4;
-        } else {                           /* Zero */
-            pPayload[2] = (pPayload[2] * 4) / 5;
+    for (j = 0; j < MODES_LONG_MSG_SAMPLES; j += 2) {
+        if (pPayload[j+0] > pPayload[j+1]) {         // One
+//            pPayload[j+2] = (pPayload[j+2] * 5) / 4;
+            pPayload[j+3] = (uint16_t) (((uint32_t)pPayload[j+3] << 4) / 23);
+        } else {                                 // Zero
+//            pPayload[j+2] = (pPayload[j+2] * 4) / 5;
+            pPayload[j+2] = (uint16_t) (((uint32_t)pPayload[j+2] << 4) / 23);
         }
     }
 }
@@ -2311,7 +2313,8 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         }
 
         // Retry with phase correction if enabled, necessary and possible.
-        if (Modes.phase_enhance && !mm.crcok && !mm.correctedbits && !use_correction && j && detectOutOfPhase(pPreamble)) {
+//        if (Modes.phase_enhance && !mm.crcok && !mm.correctedbits && !use_correction && j && detectOutOfPhase(pPreamble)) {
+         if (Modes.phase_enhance && !mm.crcok && !mm.correctedbits && !use_correction && (errors <= MODES_MSG_ENCODER_ERRS)) {
             use_correction = 1; j--;
         } else {
             use_correction = 0; 
@@ -3152,8 +3155,8 @@ void modesSendBeastOutput(struct modesMessage *mm) {
 
     timeStamp = mm->timestampMsg;  // More architecturally secure version
     for (j = 5; j >= 0; j--) {
-      *(p+j) = timeStamp & 0xff;
-      timeStamp = (timeStamp >> 8);
+        *(p+j) = timeStamp & 0xff;
+        timeStamp = (timeStamp >> 8);
     }
     p += 6;
 
