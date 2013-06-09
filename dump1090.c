@@ -2053,13 +2053,16 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             if (!(pPreamble[0] > pPreamble[1] &&
                   pPreamble[1] < pPreamble[2] &&
                   pPreamble[2] > pPreamble[3] &&
-                  pPreamble[3] < pPreamble[0] &&
+//                  pPreamble[3] < pPreamble[0] &&
                   pPreamble[4] < pPreamble[0] &&
                   pPreamble[5] < pPreamble[0] &&
-                  pPreamble[6] < pPreamble[0] &&
+//                  pPreamble[6] < pPreamble[0] &&
                   pPreamble[7] > pPreamble[8] &&
                   pPreamble[8] < pPreamble[9] &&
-                  pPreamble[9] > pPreamble[6]))
+                  pPreamble[9] > pPreamble[6] &&
+//                  pPreamble[9] > pPreamble[6]))
+                  pPreamble[11] < pPreamble[0] ))
+
             {
                 if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
                     *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
