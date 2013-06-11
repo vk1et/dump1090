@@ -17,7 +17,7 @@ CC=gcc
 
 all: dump1090
 
-%.o: %.c
+%.o: %.c %.h
 	$(CC) $(CFLAGS) $(EXTRACFLAGS) -c $<
 
 dump1090: dump1090.o anet.o

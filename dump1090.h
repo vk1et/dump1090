@@ -39,6 +39,9 @@
 //
 #define MODES_DUMP1090_VERSION     "1.07.2305.13"
 
+// #undef DEBUG
+#define DEBUG
+
 /* ============================= Include files ========================== */
 
 #ifndef _WIN32
@@ -137,11 +140,14 @@
 #define MODES_ACFLAGS_FS_VALID       (1<<13) // Aircraft Flight Status is known 
 #define MODES_ACFLAGS_NSEWSPD_VALID  (1<<14) // Aircraft EW and NS Speed is known
 #define MODES_ACFLAGS_LATLON_REL_OK  (1<<15) // Indicates it's OK to do a relative CPR
+#define MODES_ACFLAGS_GALTITUDE_VALID (1<<16)// Indicates GNSS Altitude is valid
+#define MODES_ACFLAGS_GNSSDIF_VALID  (1<<17) // Indicates it's OK to do GNSS - baro convert
 
 #define MODES_ACFLAGS_LLEITHER_VALID (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID) 
 #define MODES_ACFLAGS_LLBOTH_VALID   (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID)
 #define MODES_ACFLAGS_AOG_GROUND     (MODES_ACFLAGS_AOG_VALID    | MODES_ACFLAGS_AOG)
 
+#ifdef DEBUG
 #define MODES_DEBUG_DEMOD (1<<0)
 #define MODES_DEBUG_DEMODERR (1<<1)
 #define MODES_DEBUG_BADCRC (1<<2)
@@ -153,6 +159,8 @@
 // When debug is set to MODES_DEBUG_NOPREAMBLE, the first sample must be
 // at least greater than a given level for us to dump the signal.
 #define MODES_DEBUG_NOPREAMBLE_LEVEL 25
+
+#endif // DEBUG
 
 #define MODES_INTERACTIVE_REFRESH_TIME 250      // Milliseconds
 #define MODES_INTERACTIVE_ROWS 15               // Rows on screen
@@ -190,6 +198,8 @@ struct aircraft {
     char          flight[16];     // Flight number
     unsigned char signalLevel[8]; // Last 8 Signal Amplitudes
     int           altitude;       // Altitude
+    int           galtitude;      // GNSS Altitude
+    int           gnssdif;        // Difference gnss to baro altitude
     int           speed;          // Velocity
     int           track;          // Angle of flight
     int           vert_rate;      // Vertical rate.
@@ -212,7 +222,7 @@ struct aircraft {
     uint64_t      odd_cprtime;
     uint64_t      even_cprtime;
     double        lat, lon;       // Coordinated obtained from CPR encoded data
-    int           bFlags;         // Flags related to valid fields in this structure
+    uint32_t      bFlags;         // Flags related to valid fields in this structure
     struct aircraft *next;        // Next aircraft in our linked list
 };
 
@@ -263,7 +273,10 @@ struct {                             // Internal state
     int   raw;                       // Raw output format
     int   beast;                     // Beast binary format output
     int   mode_ac;                   // Enable decoding of SSR Modes A & C
+#ifdef DEBUG
     int   debug;                     // Debugging mode
+    uint32_t icaofilter;             // Filter aircraft address
+#endif
     int   net;                       // Enable networking
     int   net_only;                  // Enable just networking
     int   net_output_sbs_port;       // SBS output TCP port
@@ -369,8 +382,10 @@ struct modesMessage {
 
     // Fields used by multiple message types.
     int  altitude;
+    int  galtitude;
+    int  gnssdif;               // Difference gnss to baro altitude
     int  unit; 
-    int  bFlags;                // Flags related to fields in this structure
+    uint32_t  bFlags;           // Flags related to fields in this structure
 };
 
 /* ======================== function declarations ========================= */

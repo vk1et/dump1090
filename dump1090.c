@@ -412,10 +412,12 @@ void dumpRawMessage(char *descr, unsigned char *msg,
 	fixable = fixBitErrors(msg, MODES_LONG_MSG_BITS, MODES_MAX_BITERRORS, bitpos);
     }
 
+#ifdef DEBUG
     if (Modes.debug & MODES_DEBUG_JS) {
         dumpRawMessageJS(descr, msg, m, offset, fixable, bitpos);
         return;
     }
+#endif
 
     printf("\n--- %s\n    ", descr);
     for (j = 0; j < MODES_LONG_MSG_BYTES; j++) {
@@ -844,6 +846,7 @@ uint32_t modesChecksum(unsigned char *msg, int bits) {
 int modesMessageLenByType(int type) {
     return (type & 0x10) ? MODES_LONG_MSG_BITS : MODES_SHORT_MSG_BITS ;
 }
+#ifdef DEBUG
 //
 // Try to fix single bit errors using the checksum. On success modifies
 // the original buffer with the fixed version, and returns the position
@@ -918,6 +921,7 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
     }
     return (-1);
 }
+#endif
 
 /* Code for introducing a less CPU-intensive method of correcting
  * single bit errors.
@@ -1071,6 +1075,7 @@ int fixBitErrors(unsigned char *msg, int bits, int maxfix, char *fixedbits) {
     return res;
 }
 
+#ifdef DEBUG
 /* Code for testing the timing: run all possible 1- and 2-bit error 
  * the test message by all 1-bit errors. Run the old code against
  * all of them, and new the code.
@@ -1193,6 +1198,7 @@ void testAndTimeBitCorrection() {
         printf("   New code: 2-bit errors on %d msgs: %ld usecs\n",
                NTWOBITS, difftvusec(&starttv, &endtv));
 }
+#endif
 
 
 /* Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
@@ -2064,9 +2070,11 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                   pPreamble[11] < pPreamble[0] ))
 
             {
+#ifdef DEBUG
                 if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
                     *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
                     dumpRawMessage("Unexpected ratio among first 10 samples", msg, m, j);
+#endif
                 continue;
             }
 
@@ -2078,9 +2086,11 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             if (pPreamble[4] >= high ||
                 pPreamble[5] >= high)
             {
+#ifdef DEBUG
                 if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
                     *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
                     dumpRawMessage("Too high level in samples between 3 and 6", msg, m, j);
+#endif
                 continue;
             }
 
@@ -2092,9 +2102,11 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                 pPreamble[13] >= high ||
                 pPreamble[14] >= high)
             {
+#ifdef DEBUG
                 if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
                     *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
                     dumpRawMessage("Too high level in samples between 10 and 15", msg, m, j);
+#endif
                 continue;
             }
             Modes.stat_valid_preamble++;
@@ -2287,6 +2299,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                 }
             }
 
+#ifdef DEBUG
             // Output debug mode info if needed
             if (use_correction) {
                 if (Modes.debug & MODES_DEBUG_DEMOD)
@@ -2299,6 +2312,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                          mm.correctedbits == 0)
                     dumpRawMessage("Decoded with good CRC", msg, m, j);
             }
+#endif
 
             // Skip this message if we are sure it's fine
             if (mm.crcok) {
@@ -2309,10 +2323,12 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             useModesMessage(&mm);
 
         } else {
+#ifdef DEBUG
             if (Modes.debug & MODES_DEBUG_DEMODERR && use_correction) {
                 printf("The following message has %d demod errors\n", errors);
                 dumpRawMessage("Demodulated with errors", msg, m, j);
             }
+#endif
         }
 
         // Retry with phase correction if enabled, necessary and possible.
@@ -2352,6 +2368,10 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 //
 void useModesMessage(struct modesMessage *mm) {
     if ((Modes.check_crc == 0) || (mm->crcok) || (mm->correctedbits)) { // not checking, ok or fixed
+#ifdef DEBUG
+        if (Modes.icaofilter && (Modes.icaofilter != mm->addr))
+            return;
+#endif
 
         // Track aircrafts if...
         if ( (Modes.interactive)          //       in interactive mode
@@ -3087,9 +3107,10 @@ void modesAcceptClients(void) {
         if (services[j] == Modes.bos)   Modes.stat_beast_connections++;
 
         j--; /* Try again with the same listening port. */
-
+#ifdef DEBUG
         if (Modes.debug & MODES_DEBUG_NET)
             printf("Created new client %d\n", fd);
+#endif
     }
 }
 
@@ -3108,8 +3129,10 @@ void modesFreeClient(int fd) {
     free(Modes.clients[fd]);
     Modes.clients[fd] = NULL;
 
+#ifdef DEBUG
     if (Modes.debug & MODES_DEBUG_NET)
         printf("Closing client %d\n", fd);
+#endif
 
     /* If this was our maxfd, rescan the full clients array to check what's
      * the new max. */
@@ -3574,8 +3597,10 @@ int handleHTTPRequest(struct client *c, char *p) {
     char getFile[1024];
     char *ext;
 
+#ifdef DEBUG
     if (Modes.debug & MODES_DEBUG_NET)
         printf("\nHTTP request: %s\n", c->buf);
+#endif
 
     // Minimally parse the request.
     httpver = (strstr(p, "HTTP/1.1") != NULL) ? 11 : 10;
@@ -3595,10 +3620,12 @@ int handleHTTPRequest(struct client *c, char *p) {
     if (!p) return 1; /* There should be a space before HTTP/... */
     *p = '\0';
 
+#ifdef DEBUG
     if (Modes.debug & MODES_DEBUG_NET) {
         printf("\nHTTP keep alive: %d\n", keepalive);
         printf("HTTP requested URL: %s\n\n", url);
     }
+#endif
     
     if (strlen(url) < 2) {
         snprintf(getFile, sizeof getFile, "%s/gmap.html", HTMLPATH); // Default file
@@ -3659,9 +3686,11 @@ int handleHTTPRequest(struct client *c, char *p) {
         keepalive ? "keep-alive" : "close",
         clen);
 
+#ifdef DEBUG
     if (Modes.debug & MODES_DEBUG_NET) {
         printf("HTTP Reply header:\n%s", hdr);
     }
+#endif
 
     // Send header and content.
     if (write(c->fd, hdr, hdrlen) == -1 || write(c->fd, content, clen) == -1) {
@@ -3948,6 +3977,9 @@ int main(int argc, char **argv) {
             Modes.fUserLat = atof(argv[++j]);
         } else if (!strcmp(argv[j],"--lon") && more) {
             Modes.fUserLon = atof(argv[++j]);
+#ifdef DEBUG
+        } else if (!strcmp(argv[j],"--icao") && more) {
+            sscanf(argv[++j],"%x",&Modes.icaofilter);
         } else if (!strcmp(argv[j],"--debug") && more) {
             char *f = argv[++j];
             while(*f) {
@@ -3966,11 +3998,12 @@ int main(int argc, char **argv) {
                 }
                 f++;
             }
-        } else if (!strcmp(argv[j],"--stats")) {
-            Modes.stats = 1;
         } else if (!strcmp(argv[j],"--snip") && more) {
             snipMode(atoi(argv[++j]));
             exit(0);
+#endif
+        } else if (!strcmp(argv[j],"--stats")) {
+            Modes.stats = 1;
         } else if (!strcmp(argv[j],"--help")) {
             showHelp();
             exit(0);
@@ -3999,9 +4032,11 @@ int main(int argc, char **argv) {
 
     // Initialization
     modesInit();
+#ifdef DEBUG
     if (Modes.debug & MODES_DEBUG_BADCRC) {
 	    testAndTimeBitCorrection();
     }
+#endif
     if (Modes.net_only) {
         fprintf(stderr,"Net-only mode, no RTL device or file open.\n");
     } else if (Modes.filename == NULL) {
